@@ -4,8 +4,6 @@ This project demonstrates how to build a **secure IPsec (IKEv2) tunnel** between
 
 It’s fully automated with **Terraform (azurerm v4)** and designed for testing connectivity across sites in different address spaces without using VNet peering.
 
----
-
 ## 🗺️ Architecture Overview
 
 Each site hosts its own:
@@ -81,8 +79,6 @@ flowchart LR
   class PIP1,PIP2,GWPIP1,GWPIP2 pip
 ```
 
----
-
 ## ⚙️ Setup Instructions
 
 ### 1️⃣ Prerequisites
@@ -91,8 +87,6 @@ flowchart LR
 * Terraform ≥ 1.6.0
 * Provider `azurerm` ≥ 4.52.0
 * Subscription with permissions to create networking resources
-
----
 
 ### 2️⃣ Deploy Infrastructure
 
@@ -111,21 +105,17 @@ Deployment creates:
 
 > 💡  Takes ~30–45 minutes to provision because VPN Gateways are slow to build.
 
----
-
 ### 3️⃣ Retrieve SSH Key and IPs
 
 Terraform outputs include all necessary connection details:
 
 ```bash
-terraform output -raw ssh_private_key_pem > id_rsa
-chmod 600 id_rsa
+terraform output -raw ssh_private_key_pem > credentials/id_rsa
+chmod 600 credentials/id_rsa
 
 terraform output vm1_public_ip
 terraform output vm2_public_ip
 ```
-
----
 
 ## 🔍 Testing the VPN Connection
 
@@ -145,16 +135,12 @@ az network vpn-connection show \
   --query "{status: connectionStatus, egress: egressBytesTransferred, ingress: ingressBytesTransferred}"
 ```
 
----
-
 ### 2️⃣ SSH into VMs
 
 ```bash
-ssh -i id_rsa azureuser@<vm1_public_ip>
-ssh -i id_rsa azureuser@<vm2_public_ip>
+ssh -i credentials/id_rsa azureuser@<vm1_public_ip>
+ssh -i credentials/id_rsa azureuser@<vm2_public_ip>
 ```
-
----
 
 ### 3️⃣ Test Private Connectivity
 
@@ -174,8 +160,6 @@ traceroute 10.10.1.4
 
 Expected result → packets go through the VPN Gateway; latency < 10–20 ms in same region.
 
----
-
 ### 4️⃣ Check Routes
 
 On either VM:
@@ -190,16 +174,12 @@ You should see Azure-injected routes:
 10.20.0.0/16 via 10.10.255.x dev eth0
 ```
 
----
-
 ## 🧠 Notes
 
 * No custom route tables (UDR) are needed — Azure injects routes automatically when using Gateway connections.
 * NSGs allow inbound SSH (port 22) and ICMP (ping) within VirtualNetwork.
 * Gateways use **Standard + Zone-redundant PIPs** as required by AZ SKUs.
 * GatewaySubnet must be named exactly `GatewaySubnet` (case sensitive).
-
----
 
 ## 🧹 Cleanup
 
@@ -208,8 +188,6 @@ To destroy all resources:
 ```bash
 terraform destroy
 ```
-
----
 
 ## 📘 References
 
