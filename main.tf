@@ -36,13 +36,13 @@ locals {
   ssh_key_bits   = 4096
 
   # Addressing
-  vnet1_cidr       = "10.10.0.0/16"
-  vnet1_subnet_vm  = "10.10.1.0/24"
-  vnet1_subnet_gw  = "10.10.255.0/27" # must be named GatewaySubnet
+  vnet1_cidr      = "10.10.0.0/16"
+  vnet1_subnet_vm = "10.10.1.0/24"
+  vnet1_subnet_gw = "10.10.255.0/27" # must be named GatewaySubnet
 
-  vnet2_cidr       = "10.20.0.0/16"
-  vnet2_subnet_vm  = "10.20.1.0/24"
-  vnet2_subnet_gw  = "10.20.255.0/27"
+  vnet2_cidr      = "10.20.0.0/16"
+  vnet2_subnet_vm = "10.20.1.0/24"
+  vnet2_subnet_gw = "10.20.255.0/27"
 
   # Shared key for VNet2VNet connection
   ipsec_psk = "Demo-ChangeMe-123!"
@@ -211,12 +211,12 @@ resource "azurerm_network_interface_security_group_association" "vm1_nsg_assoc" 
 }
 
 resource "azurerm_linux_virtual_machine" "vm1" {
-  name                = "vm1"
-  location            = azurerm_resource_group.rg1.location
-  resource_group_name = azurerm_resource_group.rg1.name
-  size                = "Standard_B1s"
-  admin_username      = local.admin_username
-  network_interface_ids = [azurerm_network_interface.vm1_nic.id]
+  name                            = "vm1"
+  location                        = azurerm_resource_group.rg1.location
+  resource_group_name             = azurerm_resource_group.rg1.name
+  size                            = "Standard_B1s"
+  admin_username                  = local.admin_username
+  network_interface_ids           = [azurerm_network_interface.vm1_nic.id]
   disable_password_authentication = true
 
   admin_ssh_key {
@@ -266,12 +266,12 @@ resource "azurerm_network_interface_security_group_association" "vm2_nsg_assoc" 
 }
 
 resource "azurerm_linux_virtual_machine" "vm2" {
-  name                = "vm2"
-  location            = azurerm_resource_group.rg2.location
-  resource_group_name = azurerm_resource_group.rg2.name
-  size                = "Standard_B1s"
-  admin_username      = local.admin_username
-  network_interface_ids = [azurerm_network_interface.vm2_nic.id]
+  name                            = "vm2"
+  location                        = azurerm_resource_group.rg2.location
+  resource_group_name             = azurerm_resource_group.rg2.name
+  size                            = "Standard_B1s"
+  admin_username                  = local.admin_username
+  network_interface_ids           = [azurerm_network_interface.vm2_nic.id]
   disable_password_authentication = true
 
   admin_ssh_key {
@@ -303,6 +303,7 @@ resource "azurerm_public_ip" "gw1_pip" {
   resource_group_name = azurerm_resource_group.rg1.name
   allocation_method   = "Static"
   sku                 = "Standard"
+  zones               = ["1", "2", "3"]
 }
 
 resource "azurerm_public_ip" "gw2_pip" {
@@ -311,6 +312,7 @@ resource "azurerm_public_ip" "gw2_pip" {
   resource_group_name = azurerm_resource_group.rg2.name
   allocation_method   = "Static"
   sku                 = "Standard"
+  zones               = ["1", "2", "3"]
 }
 
 resource "azurerm_virtual_network_gateway" "gw1" {
@@ -320,8 +322,8 @@ resource "azurerm_virtual_network_gateway" "gw1" {
 
   type       = "Vpn"
   vpn_type   = "RouteBased"
-  sku        = "VpnGw1"
-  generation = "Generation2"
+  sku        = "VpnGw1AZ"
+  generation = "Generation1"
 
   ip_configuration {
     name                          = "vnetGatewayConfig"
@@ -338,8 +340,8 @@ resource "azurerm_virtual_network_gateway" "gw2" {
 
   type       = "Vpn"
   vpn_type   = "RouteBased"
-  sku        = "VpnGw1"
-  generation = "Generation2"
+  sku        = "VpnGw1AZ"
+  generation = "Generation1"
 
   ip_configuration {
     name                          = "vnetGatewayConfig"
@@ -353,25 +355,25 @@ resource "azurerm_virtual_network_gateway" "gw2" {
 # VNet-to-VNet Connections (bidirectional)
 #####################
 resource "azurerm_virtual_network_gateway_connection" "gw1_to_gw2" {
-  name                              = "gw1-to-gw2"
-  location                          = azurerm_resource_group.rg1.location
-  resource_group_name               = azurerm_resource_group.rg1.name
-  type                               = "Vnet2Vnet"
-  virtual_network_gateway_id         = azurerm_virtual_network_gateway.gw1.id
-  peer_virtual_network_gateway_id    = azurerm_virtual_network_gateway.gw2.id
-  shared_key                         = local.ipsec_psk
-  enable_bgp                         = false
+  name                            = "gw1-to-gw2"
+  location                        = azurerm_resource_group.rg1.location
+  resource_group_name             = azurerm_resource_group.rg1.name
+  type                            = "Vnet2Vnet"
+  virtual_network_gateway_id      = azurerm_virtual_network_gateway.gw1.id
+  peer_virtual_network_gateway_id = azurerm_virtual_network_gateway.gw2.id
+  shared_key                      = local.ipsec_psk
+  enable_bgp                      = false
 }
 
 resource "azurerm_virtual_network_gateway_connection" "gw2_to_gw1" {
-  name                              = "gw2-to-gw1"
-  location                          = azurerm_resource_group.rg2.location
-  resource_group_name               = azurerm_resource_group.rg2.name
-  type                               = "Vnet2Vnet"
-  virtual_network_gateway_id         = azurerm_virtual_network_gateway.gw2.id
-  peer_virtual_network_gateway_id    = azurerm_virtual_network_gateway.gw1.id
-  shared_key                         = local.ipsec_psk
-  enable_bgp                         = false
+  name                            = "gw2-to-gw1"
+  location                        = azurerm_resource_group.rg2.location
+  resource_group_name             = azurerm_resource_group.rg2.name
+  type                            = "Vnet2Vnet"
+  virtual_network_gateway_id      = azurerm_virtual_network_gateway.gw2.id
+  peer_virtual_network_gateway_id = azurerm_virtual_network_gateway.gw1.id
+  shared_key                      = local.ipsec_psk
+  enable_bgp                      = false
 }
 
 #####################
