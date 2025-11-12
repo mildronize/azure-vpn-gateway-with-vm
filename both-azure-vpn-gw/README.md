@@ -96,6 +96,8 @@ terraform plan -out tfplan
 terraform apply tfplan
 ```
 
+Note: Azure VPN Gateway use about 25 minutes to provision.
+
 Deployment creates:
 
 * Two Resource Groups: `rg-vnet1`, `rg-vnet2`
