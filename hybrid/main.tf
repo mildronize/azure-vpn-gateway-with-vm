@@ -24,10 +24,12 @@ locals {
   admin_username = "azureuser"
   ipsec_psk      = "Demo-ChangeMe-123!"
   # Address spaces
-  vnet3_cidr    = "10.30.0.0/16"
-  vnet3_gw_cidr = "10.30.255.0/27"
-  vnet4_cidr    = "10.40.0.0/16"
-  vnet4_vm_cidr = "10.40.1.0/24"
+  vnet3_cidr        = "10.30.0.0/16"
+  vnet3_vm_cidr     = "10.30.1.0/24"
+  vnet3_gw_cidr     = "10.30.255.0/27"
+  vnet4_cidr        = "10.40.0.0/16"
+  vnet4_client_cidr = "10.40.10.0/24"
+  vnet4_vpngw_cidr  = "10.40.2.0/24"
 }
 
 #####################
@@ -58,6 +60,103 @@ resource "azurerm_subnet" "vnet3_gw" {
   resource_group_name  = azurerm_resource_group.rg3.name
   virtual_network_name = azurerm_virtual_network.vnet3.name
   address_prefixes     = [local.vnet3_gw_cidr]
+}
+
+resource "azurerm_subnet" "vnet3_vm" {
+  name                 = "snet-vm"
+  resource_group_name  = azurerm_resource_group.rg3.name
+  virtual_network_name = azurerm_virtual_network.vnet3.name
+  address_prefixes     = [local.vnet3_vm_cidr]
+}
+
+#####################
+# VNet3 NSG and VM
+#####################
+resource "azurerm_network_security_group" "nsg3" {
+  name                = "nsg-azure-vm"
+  location            = azurerm_resource_group.rg3.location
+  resource_group_name = azurerm_resource_group.rg3.name
+
+  security_rule {
+    name                       = "allow-ssh"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  # ICMP from on-prem VNet for VPN connectivity testing
+  security_rule {
+    name                       = "allow-icmp-from-onprem"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Icmp"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = local.vnet4_cidr
+    destination_address_prefix = "*"
+  }
+}
+
+resource "azurerm_public_ip" "vm3_pip" {
+  name                = "pip-azure-vm"
+  location            = azurerm_resource_group.rg3.location
+  resource_group_name = azurerm_resource_group.rg3.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+
+  lifecycle { create_before_destroy = true }
+}
+
+resource "azurerm_network_interface" "vm3_nic" {
+  name                = "nic-azure-vm"
+  location            = azurerm_resource_group.rg3.location
+  resource_group_name = azurerm_resource_group.rg3.name
+
+  ip_configuration {
+    name                          = "ipcfg"
+    subnet_id                     = azurerm_subnet.vnet3_vm.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.vm3_pip.id
+  }
+}
+
+resource "azurerm_network_interface_security_group_association" "vm3_nsg_assoc" {
+  network_interface_id      = azurerm_network_interface.vm3_nic.id
+  network_security_group_id = azurerm_network_security_group.nsg3.id
+}
+
+resource "azurerm_linux_virtual_machine" "vm3" {
+  name                            = "vm-azure"
+  location                        = azurerm_resource_group.rg3.location
+  resource_group_name             = azurerm_resource_group.rg3.name
+  size                            = "Standard_B1s"
+  admin_username                  = local.admin_username
+  network_interface_ids           = [azurerm_network_interface.vm3_nic.id]
+  disable_password_authentication = true
+
+  admin_ssh_key {
+    username   = local.admin_username
+    public_key = tls_private_key.vm4.public_key_openssh
+  }
+
+  os_disk {
+    name                 = "osdisk-azure-vm"
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts"
+    version   = "latest"
+  }
 }
 
 # Gateway Public IP (AZ SKU requires zones)
@@ -91,7 +190,7 @@ resource "azurerm_virtual_network_gateway" "gw3" {
 }
 
 #####################
-# VNet4 (on-prem sim) + strongSwan VM
+# VNet4 (on-prem sim) + strongSwan VM + Client VM
 #####################
 resource "azurerm_virtual_network" "vnet4" {
   name                = "vnet4"
@@ -100,11 +199,20 @@ resource "azurerm_virtual_network" "vnet4" {
   address_space       = [local.vnet4_cidr]
 }
 
-resource "azurerm_subnet" "vnet4_vm" {
-  name                 = "snet-onprem"
+# Subnet for VPN Gateway VM (strongSwan)
+resource "azurerm_subnet" "vnet4_vpngw" {
+  name                 = "snet-vpngw"
   resource_group_name  = azurerm_resource_group.rg4.name
   virtual_network_name = azurerm_virtual_network.vnet4.name
-  address_prefixes     = [local.vnet4_vm_cidr]
+  address_prefixes     = [local.vnet4_vpngw_cidr]
+}
+
+# Subnet for on-prem client VM
+resource "azurerm_subnet" "vnet4_client" {
+  name                 = "snet-client"
+  resource_group_name  = azurerm_resource_group.rg4.name
+  virtual_network_name = azurerm_virtual_network.vnet4.name
+  address_prefixes     = [local.vnet4_client_cidr]
 }
 
 resource "azurerm_network_security_group" "nsg4" {
@@ -137,16 +245,16 @@ resource "azurerm_network_security_group" "nsg4" {
     destination_address_prefix = "*"
   }
 
-  # ICMP in VNet (สำหรับ ping ทดสอบ)
+  # ICMP from Azure VNet for VPN connectivity testing
   security_rule {
-    name                       = "allow-icmp-vnet"
+    name                       = "allow-icmp-from-azure"
     priority                   = 120
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Icmp"
     source_port_range          = "*"
     destination_port_range     = "*"
-    source_address_prefix      = "VirtualNetwork"
+    source_address_prefix      = local.vnet3_cidr
     destination_address_prefix = "*"
   }
 }
@@ -162,13 +270,14 @@ resource "azurerm_public_ip" "vm4_pip" {
 }
 
 resource "azurerm_network_interface" "vm4_nic" {
-  name                = "nic-onprem"
-  location            = azurerm_resource_group.rg4.location
-  resource_group_name = azurerm_resource_group.rg4.name
+  name                  = "nic-vpngw"
+  location              = azurerm_resource_group.rg4.location
+  resource_group_name   = azurerm_resource_group.rg4.name
+  ip_forwarding_enabled = true
 
   ip_configuration {
     name                          = "ipcfg"
-    subnet_id                     = azurerm_subnet.vnet4_vm.id
+    subnet_id                     = azurerm_subnet.vnet4_vpngw.id
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.vm4_pip.id
   }
@@ -263,12 +372,12 @@ locals {
 
             left=%defaultroute
             leftid=${azurerm_public_ip.vm4_pip.ip_address}
-            leftsubnet=0.0.0.0/0
+            leftsubnet=${local.vnet4_cidr}
             leftupdown=/etc/ipsec.d/vti.sh
 
             right=${azurerm_public_ip.gw3_pip.ip_address}
             rightid=${azurerm_public_ip.gw3_pip.ip_address}
-            rightsubnet=0.0.0.0/0
+            rightsubnet=${local.vnet3_cidr}
 
             mark=42
             auto=start
@@ -284,8 +393,10 @@ locals {
               ip link set vti0 up
               sysctl -w net.ipv4.conf.vti0.disable_policy=1 >/dev/null
               ip addr add 10.240.0.2/30 dev vti0 2>/dev/null || true
-              # route to Azure VNet
+              # Route to Azure VNet via VTI tunnel
               ip route add ${local.vnet3_cidr} dev vti0 2>/dev/null || true
+              # Allow return traffic from Azure to client subnet
+              ip route add ${local.vnet4_client_cidr} via $(ip route | grep ${local.vnet4_vpngw_cidr} | awk '{print $9}' | head -1) 2>/dev/null || true
               ;;
             down-client)
               ip link del vti0 2>/dev/null || true
@@ -309,6 +420,117 @@ locals {
       - systemctl restart strongswan
       - systemctl enable strongswan
   CLOUDCFG
+}
+
+#####################
+# VNet4 Client VM (simulated on-prem workstation)
+#####################
+resource "azurerm_network_security_group" "nsg4_client" {
+  name                = "nsg-onprem-client"
+  location            = azurerm_resource_group.rg4.location
+  resource_group_name = azurerm_resource_group.rg4.name
+
+  security_rule {
+    name                       = "allow-ssh-from-vpngw"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = local.vnet4_vpngw_cidr
+    destination_address_prefix = "*"
+  }
+
+  # ICMP from Azure VNet for VPN connectivity testing
+  security_rule {
+    name                       = "allow-icmp-from-azure"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Icmp"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = local.vnet3_cidr
+    destination_address_prefix = "*"
+  }
+
+  # ICMP from local VNet (strongSwan subnet)
+  security_rule {
+    name                       = "allow-icmp-from-local"
+    priority                   = 120
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Icmp"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = local.vnet4_vpngw_cidr
+    destination_address_prefix = "*"
+  }
+}
+
+# Route table for client VM to route Azure traffic through strongSwan
+resource "azurerm_route_table" "vnet4_client_rt" {
+  name                = "rt-onprem-client"
+  location            = azurerm_resource_group.rg4.location
+  resource_group_name = azurerm_resource_group.rg4.name
+
+  route {
+    name                   = "to-azure-via-vpngw"
+    address_prefix         = local.vnet3_cidr
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = azurerm_network_interface.vm4_nic.private_ip_address
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "vnet4_client_rt_assoc" {
+  subnet_id      = azurerm_subnet.vnet4_client.id
+  route_table_id = azurerm_route_table.vnet4_client_rt.id
+}
+
+resource "azurerm_network_interface" "vm4_client_nic" {
+  name                = "nic-onprem-client"
+  location            = azurerm_resource_group.rg4.location
+  resource_group_name = azurerm_resource_group.rg4.name
+
+  ip_configuration {
+    name                          = "ipcfg"
+    subnet_id                     = azurerm_subnet.vnet4_client.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
+
+resource "azurerm_network_interface_security_group_association" "vm4_client_nsg_assoc" {
+  network_interface_id      = azurerm_network_interface.vm4_client_nic.id
+  network_security_group_id = azurerm_network_security_group.nsg4_client.id
+}
+
+resource "azurerm_linux_virtual_machine" "vm4_client" {
+  name                            = "vm-onprem-client"
+  location                        = azurerm_resource_group.rg4.location
+  resource_group_name             = azurerm_resource_group.rg4.name
+  size                            = "Standard_B1s"
+  admin_username                  = local.admin_username
+  network_interface_ids           = [azurerm_network_interface.vm4_client_nic.id]
+  disable_password_authentication = true
+
+  admin_ssh_key {
+    username   = local.admin_username
+    public_key = tls_private_key.vm4.public_key_openssh
+  }
+
+  os_disk {
+    name                 = "osdisk-onprem-client"
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts"
+    version   = "latest"
+  }
 }
 
 #####################
@@ -337,30 +559,45 @@ resource "azurerm_virtual_network_gateway_connection" "gw3_to_onprem" {
   shared_key                 = local.ipsec_psk
   enable_bgp                 = false
 
-  # ถ้าอยาก “ไม่ล็อกนโยบาย” ให้ปล่อย negotiation อัตโนมัติได้เลย โดย ลบ บล็อก ipsec_policy ออกทั้งก้อน — มักช่วยลดปัญหา mismatch ระหว่าง Azure ↔ strongSwan เวลา test/POC
-  ipsec_policy {
-    # IKE (phase 1)
-  ike_encryption   = "AES256"
-  ike_integrity    = "SHA256"
-  dh_group         = "ECP256"
-
-  # ESP (phase 2) — GCM
-  ipsec_encryption = "GCMAES256"
-  ipsec_integrity  = "GCMAES256"
-  pfs_group        = "ECP256"
-
-    sa_lifetime = 28800 # seconds
-    # sa_datasize = 102400000  # (optional) KB; ถ้า validate มี constraint ให้เอาออกหรือใส่ 0 ตามเวอร์ชันโปรไวเดอร์
-  }
+  # Removed ipsec_policy block to allow automatic negotiation with strongSwan
+  # This prevents cipher mismatch issues between Azure and strongSwan
 }
 
 #####################
 # Outputs
 #####################
-output "vm4_public_ip" { value = azurerm_public_ip.vm4_pip.ip_address }
-output "vm4_private_ip" { value = azurerm_network_interface.vm4_nic.private_ip_address }
-output "gw3_public_ip" { value = azurerm_public_ip.gw3_pip.ip_address }
+output "azure_vm_public_ip" {
+  description = "Public IP of Azure VM (for SSH management)"
+  value       = azurerm_public_ip.vm3_pip.ip_address
+}
+
+output "azure_vm_private_ip" {
+  description = "Private IP of Azure VM (VPN test target)"
+  value       = azurerm_network_interface.vm3_nic.private_ip_address
+}
+
+output "vpngw_vm_public_ip" {
+  description = "Public IP of VPN Gateway VM (strongSwan)"
+  value       = azurerm_public_ip.vm4_pip.ip_address
+}
+
+output "vpngw_vm_private_ip" {
+  description = "Private IP of VPN Gateway VM (strongSwan)"
+  value       = azurerm_network_interface.vm4_nic.private_ip_address
+}
+
+output "onprem_client_private_ip" {
+  description = "Private IP of on-prem client VM (no public IP)"
+  value       = azurerm_network_interface.vm4_client_nic.private_ip_address
+}
+
+output "azure_vpn_gateway_public_ip" {
+  description = "Public IP of Azure VPN Gateway"
+  value       = azurerm_public_ip.gw3_pip.ip_address
+}
+
 output "ssh_private_key" {
-  value     = tls_private_key.vm4.private_key_pem
-  sensitive = true
+  description = "SSH private key for all VMs"
+  value       = tls_private_key.vm4.private_key_pem
+  sensitive   = true
 }
