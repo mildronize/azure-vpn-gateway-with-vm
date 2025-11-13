@@ -45,38 +45,38 @@ All critical issues identified in `report.md` have been addressed. The hybrid co
 ### High-Level Topology
 
 ```
-┌──────────────────────────────────────────────────────┐  ┌──────────────────────────────────────────────────┐
-│ VNet4 (10.40.0.0/16) - Simulated On-Premises         │  │ VNet3 (10.30.0.0/16) - Azure Cloud               │
-│                                                      │  │                                                  │
+┌──────────────────────────────────────────────────────┐  ┌─────────────────────────────────────────────────┐
+│ VNet4 (10.40.0.0/16) - Simulated On-Premises         │  │ VNet3 (10.30.0.0/16) - Azure Cloud              │
+│                                                      │  │                                                 │
 │  ┌────────────────────────────────────────────────┐  │  │   ┌──────────────────────────────────────────┐  │
 │  │ Subnet: snet-client (10.40.10.0/24)            │  │  │   │ Subnet: snet-vm (10.30.1.0/24)           │  │
-│  │                                                 │  │  │   │                                          │  │
+│  │                                                │  │  │   │                                          │  │
 │  │  • vm-onprem-client (Ubuntu 22.04)             │  │  │   │  • vm-azure (Ubuntu 22.04)               │  │
 │  │  • Private IP: 10.40.10.x                      │  │  │   │  • Private IP: 10.30.1.x                 │  │
 │  │  • NO public IP                                │  │  │   │  • Public IP (for SSH management)        │  │
-│  │  • NSG: SSH from 10.40.2.0/24, ICMP            │  │  │   │  • NSG: SSH from internet, ICMP from    │  │
-│  │                                                 │  │  │   │    10.40.0.0/16                          │  │
+│  │  • NSG: SSH from 10.40.2.0/24, ICMP            │  │  │   │  • NSG: SSH from internet, ICMP from     │  │
+│  │                                                │  │  │   │    10.40.0.0/16                          │  │
 │  │  Route Table:                                  │  │  │   │                                          │  │
-│  │   → 10.30.0.0/16 via 10.40.2.x (strongSwan)    │  │  │   │  Routes: Auto-injected by Azure VPN GW  │  │
+│  │   → 10.30.0.0/16 via 10.40.2.x (strongSwan)    │  │  │   │  Routes: Auto-injected by Azure VPN GW   │  │
 │  └────────────────────────────────────────────────┘  │  │   └──────────────────────────────────────────┘  │
-│                     │                                │  │                                                  │
-│                     │ Routes through                 │  │                                                  │
-│                     ▼                                │  │                                                  │
+│                     │                                │  │                                                 │
+│                     │ Routes through                 │  │                                                 │
+│                     ▼                                │  │                                                 │
 │  ┌────────────────────────────────────────────────┐  │  │   ┌──────────────────────────────────────────┐  │
 │  │ Subnet: snet-vpngw (10.40.2.0/24)              │  │  │   │ GatewaySubnet (10.30.255.0/27)           │  │
-│  │                                                 │  │  │   │                                          │  │
+│  │                                                │  │  │   │                                          │  │
 │  │  • vm-onprem-strongswan (Ubuntu + strongSwan)  │◄─┼──┼──►│  • Azure VPN Gateway (VpnGw1AZ)          │  │
 │  │  • Private IP: 10.40.2.x                       │  │  │   │  • Public IP: Zone-redundant             │  │
 │  │  • Public IP (for IPsec + SSH)                 │  │  │   │  • Route-based, IKEv2                    │  │
 │  │  • IP forwarding: ENABLED                      │  │  │   │                                          │  │
 │  │  • VTI tunnel interface (vti0)                 │  │  │   │                                          │  │
 │  │  • NSG: SSH, IPsec (500/4500 UDP), ICMP        │  │  │   │                                          │  │
-│  │                                                 │  │  │   │                                          │  │
+│  │                                                │  │  │   │                                          │  │
 │  │  Routes:                                       │  │  │   │  Connection Type: IPsec S2S              │  │
 │  │   → 10.30.0.0/16 via vti0                      │  │  │   │  Shared Key: PSK                         │  │
 │  │   → 10.40.10.0/24 via eth0                     │  │  │   │  Auto-negotiation: ENABLED               │  │
 │  └────────────────────────────────────────────────┘  │  │   └──────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘  └──────────────────────────────────────────────────┘
+└────────────────────────────────────────────── ───────┘  └─────────────────────────────────────────────────┘
 
                          ◄═══════════════════════════════════════════════►
                               IPsec/IKEv2 VPN Tunnel (S2S)
@@ -96,31 +96,31 @@ Traffic Flow Example (Client → Azure):
 
 ### Resource Inventory
 
-| Resource Type | Name | Location | Purpose |
-|---------------|------|----------|---------|
-| **Resource Groups** | | | |
-| azurerm_resource_group | rg-vnet3 | southeastasia | Azure cloud resources |
-| azurerm_resource_group | rg-vnet4 | southeastasia | On-prem simulation resources |
-| **Virtual Networks** | | | |
-| azurerm_virtual_network | vnet3 (10.30.0.0/16) | rg-vnet3 | Azure cloud network |
-| azurerm_virtual_network | vnet4 (10.40.0.0/16) | rg-vnet4 | On-prem simulation network |
-| **Subnets (VNet3)** | | | |
-| azurerm_subnet | snet-vm (10.30.1.0/24) | vnet3 | Azure VM subnet |
-| azurerm_subnet | GatewaySubnet (10.30.255.0/27) | vnet3 | Azure VPN Gateway (required name) |
-| **Subnets (VNet4)** | | | |
-| azurerm_subnet | snet-client (10.40.10.0/24) | vnet4 | On-prem client workstations |
-| azurerm_subnet | snet-vpngw (10.40.2.0/24) | vnet4 | VPN gateway VM (strongSwan) |
-| **Virtual Machines** | | | |
-| azurerm_linux_virtual_machine | vm-azure | rg-vnet3 | Azure test VM (Ubuntu 22.04, B1s) |
-| azurerm_linux_virtual_machine | vm-onprem-strongswan | rg-vnet4 | VPN gateway VM (Ubuntu 22.04 + strongSwan, B1s) |
-| azurerm_linux_virtual_machine | vm-onprem-client | rg-vnet4 | On-prem client VM (Ubuntu 22.04, B1s) |
-| **VPN Infrastructure** | | | |
-| azurerm_virtual_network_gateway | vngw3 (VpnGw1AZ) | rg-vnet3 | Azure managed VPN gateway |
-| azurerm_local_network_gateway | lng-onprem | rg-vnet3 | Represents on-prem endpoint |
-| azurerm_virtual_network_gateway_connection | gw3-to-onprem | rg-vnet3 | S2S VPN connection |
-| **Routing** | | | |
-| azurerm_route_table | rt-onprem-client | rg-vnet4 | Routes Azure traffic to strongSwan |
-| (Azure Auto-Routes) | - | vnet3 | Azure injects routes automatically |
+| Resource Type                              | Name                           | Location      | Purpose                                         |
+| ------------------------------------------ | ------------------------------ | ------------- | ----------------------------------------------- |
+| **Resource Groups**                        |                                |               |                                                 |
+| azurerm_resource_group                     | rg-vnet3                       | southeastasia | Azure cloud resources                           |
+| azurerm_resource_group                     | rg-vnet4                       | southeastasia | On-prem simulation resources                    |
+| **Virtual Networks**                       |                                |               |                                                 |
+| azurerm_virtual_network                    | vnet3 (10.30.0.0/16)           | rg-vnet3      | Azure cloud network                             |
+| azurerm_virtual_network                    | vnet4 (10.40.0.0/16)           | rg-vnet4      | On-prem simulation network                      |
+| **Subnets (VNet3)**                        |                                |               |                                                 |
+| azurerm_subnet                             | snet-vm (10.30.1.0/24)         | vnet3         | Azure VM subnet                                 |
+| azurerm_subnet                             | GatewaySubnet (10.30.255.0/27) | vnet3         | Azure VPN Gateway (required name)               |
+| **Subnets (VNet4)**                        |                                |               |                                                 |
+| azurerm_subnet                             | snet-client (10.40.10.0/24)    | vnet4         | On-prem client workstations                     |
+| azurerm_subnet                             | snet-vpngw (10.40.2.0/24)      | vnet4         | VPN gateway VM (strongSwan)                     |
+| **Virtual Machines**                       |                                |               |                                                 |
+| azurerm_linux_virtual_machine              | vm-azure                       | rg-vnet3      | Azure test VM (Ubuntu 22.04, B1s)               |
+| azurerm_linux_virtual_machine              | vm-onprem-strongswan           | rg-vnet4      | VPN gateway VM (Ubuntu 22.04 + strongSwan, B1s) |
+| azurerm_linux_virtual_machine              | vm-onprem-client               | rg-vnet4      | On-prem client VM (Ubuntu 22.04, B1s)           |
+| **VPN Infrastructure**                     |                                |               |                                                 |
+| azurerm_virtual_network_gateway            | vngw3 (VpnGw1AZ)               | rg-vnet3      | Azure managed VPN gateway                       |
+| azurerm_local_network_gateway              | lng-onprem                     | rg-vnet3      | Represents on-prem endpoint                     |
+| azurerm_virtual_network_gateway_connection | gw3-to-onprem                  | rg-vnet3      | S2S VPN connection                              |
+| **Routing**                                |                                |               |                                                 |
+| azurerm_route_table                        | rt-onprem-client               | rg-vnet4      | Routes Azure traffic to strongSwan              |
+| (Azure Auto-Routes)                        | -                              | vnet3         | Azure injects routes automatically              |
 
 ---
 
@@ -560,13 +560,13 @@ Per requirements, these are noted but not addressed:
 
 ## Cost Estimate
 
-| Resource | SKU | Quantity | Monthly Cost (USD) |
-|----------|-----|----------|-------------------|
-| Azure VPN Gateway | VpnGw1AZ | 1 | ~$190 |
-| VMs (B1s) | Standard_B1s | 3 | ~$30 |
-| Public IPs (Standard) | Standard | 3 | ~$12 |
-| Managed Disks (30GB) | Standard_LRS | 3 | ~$5 |
-| **Total** | | | **~$237/month** |
+| Resource              | SKU          | Quantity | Monthly Cost (USD) |
+| --------------------- | ------------ | -------- | ------------------ |
+| Azure VPN Gateway     | VpnGw1AZ     | 1        | ~$190              |
+| VMs (B1s)             | Standard_B1s | 3        | ~$30               |
+| Public IPs (Standard) | Standard     | 3        | ~$12               |
+| Managed Disks (30GB)  | Standard_LRS | 3        | ~$5                |
+| **Total**             |              |          | **~$237/month**    |
 
 **Notes:**
 - VPN Gateway is the largest cost component (~80% of total)
@@ -578,17 +578,17 @@ Per requirements, these are noted but not addressed:
 
 ## Comparison to Reference Architecture
 
-| Aspect | both-azure-vpn-gw | hybrid (BEFORE) | hybrid (AFTER) |
-|--------|-------------------|-----------------|----------------|
-| **Connectivity Model** | VNet-to-VNet | S2S (attempted) | S2S (proper) |
-| **Both sides have client VMs** | ✅ | ❌ | ✅ |
-| **Gateway separation** | ✅ | ❌ | ✅ |
-| **Testable end-to-end** | ✅ | ❌ | ✅ |
-| **IP forwarding** | N/A | ❌ | ✅ |
-| **Route tables** | Auto | Missing | ✅ |
-| **Cipher config** | Auto | ❌ Mismatch | ✅ Auto |
-| **Traffic selectors** | Auto | ❌ Wrong | ✅ Fixed |
-| **NSG rules** | ✅ | ❌ Wrong | ✅ Fixed |
+| Aspect                         | both-azure-vpn-gw | hybrid (BEFORE) | hybrid (AFTER) |
+| ------------------------------ | ----------------- | --------------- | -------------- |
+| **Connectivity Model**         | VNet-to-VNet      | S2S (attempted) | S2S (proper)   |
+| **Both sides have client VMs** | ✅                 | ❌               | ✅              |
+| **Gateway separation**         | ✅                 | ❌               | ✅              |
+| **Testable end-to-end**        | ✅                 | ❌               | ✅              |
+| **IP forwarding**              | N/A               | ❌               | ✅              |
+| **Route tables**               | Auto              | Missing         | ✅              |
+| **Cipher config**              | Auto              | ❌ Mismatch      | ✅ Auto         |
+| **Traffic selectors**          | Auto              | ❌ Wrong         | ✅ Fixed        |
+| **NSG rules**                  | ✅                 | ❌ Wrong         | ✅ Fixed        |
 
 ---
 
@@ -783,18 +783,18 @@ ping -c 4 $AZURE_VM_PRIVATE
 
 ## Summary of Changes from Initial Report
 
-| Issue | Status | Fix Applied |
-|-------|--------|-------------|
-| Missing Azure VM | ✅ FIXED | Added vm-azure in snet-vm (10.30.1.0/24) |
+| Issue                     | Status  | Fix Applied                                           |
+| ------------------------- | ------- | ----------------------------------------------------- |
+| Missing Azure VM          | ✅ FIXED | Added vm-azure in snet-vm (10.30.1.0/24)              |
 | Missing on-prem client VM | ✅ FIXED | Added vm-onprem-client in snet-client (10.40.10.0/24) |
-| IPsec cipher mismatch | ✅ FIXED | Removed ipsec_policy block |
-| Traffic selector mismatch | ✅ FIXED | Changed to specific CIDRs |
-| NSG ICMP rules | ✅ FIXED | Using explicit CIDRs instead of service tags |
-| IP forwarding | ✅ FIXED | Enabled ip_forwarding_enabled on strongSwan NIC |
-| Missing route table | ✅ FIXED | Added rt-onprem-client with UDR |
-| strongSwan routing | ✅ FIXED | Updated VTI script with client subnet route |
-| Code quality | ✅ FIXED | All comments in English |
-| Terraform validation | ✅ FIXED | Updated deprecated parameter syntax |
+| IPsec cipher mismatch     | ✅ FIXED | Removed ipsec_policy block                            |
+| Traffic selector mismatch | ✅ FIXED | Changed to specific CIDRs                             |
+| NSG ICMP rules            | ✅ FIXED | Using explicit CIDRs instead of service tags          |
+| IP forwarding             | ✅ FIXED | Enabled ip_forwarding_enabled on strongSwan NIC       |
+| Missing route table       | ✅ FIXED | Added rt-onprem-client with UDR                       |
+| strongSwan routing        | ✅ FIXED | Updated VTI script with client subnet route           |
+| Code quality              | ✅ FIXED | All comments in English                               |
+| Terraform validation      | ✅ FIXED | Updated deprecated parameter syntax                   |
 
 ---
 
